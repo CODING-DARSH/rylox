@@ -1,21 +1,13 @@
-"""Rylox CLI — exactly four commands (spec §9). No fifth command in v0.1.
-
-Phase 1 goal: lock in the *interface* (command names, options, exit codes,
-error presentation) before any real logic exists. Every command below is a
-stub that returns a clearly-labeled "not implemented" result rather than
-doing nothing silently — that way `rylox --help` and each subcommand's
-`--help` are already correct and testable, and later phases fill bodies in
-without touching signatures.
-"""
-
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Optional
 
 import typer
 
 from rylox import __version__
+from rylox.doctor import run_doctor
 from rylox.errors import RyloxError
 
 app = typer.Typer(
@@ -86,13 +78,31 @@ def clean(
     ),
 ) -> None:
     """Delete the `.rylox/` cache and start fresh."""
-    _not_implemented("clean")
+    from rylox.cache import cache_dir
+
+    directory = cache_dir(repo)
+    if not directory.exists():
+        typer.echo(f"nothing to clean: {directory} does not exist")
+        return
+    shutil.rmtree(directory)
+    typer.echo(f"removed {directory}")
 
 
 @app.command()
-def doctor() -> None:
+def doctor(
+    repo: Path = typer.Option(
+        Path("."), "--repo", exists=True, file_okay=False, help="Repository root."
+    ),
+) -> None:
     """Run environment/health checks and report each pass/fail individually."""
-    _not_implemented("doctor")
+    results = run_doctor(repo)
+
+    symbols = {"pass": "[ok]", "fail": "[FAIL]", "skip": "[skip]"}
+    for result in results:
+        typer.echo(f"{symbols[result.status]} {result.name}: {result.detail}")
+
+    if any(r.status == "fail" for r in results):
+        raise typer.Exit(code=1)
 
 
 def _not_implemented(command: str) -> None:

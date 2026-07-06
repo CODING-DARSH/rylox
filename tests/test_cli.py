@@ -1,10 +1,4 @@
-"""Phase 1 tests: lock in the CLI *interface* before any real logic exists.
-
-These tests intentionally assert on --help output and stub behavior. As each
-phase fills in real logic, the corresponding stub assertion here gets
-replaced by a real behavioral test — this file's job is just to make sure
-nobody accidentally renames a command or drops an option along the way.
-"""
+"""CLI interface tests: command signatures, options, exit codes."""
 
 from __future__ import annotations
 
@@ -34,7 +28,6 @@ def test_version_flag() -> None:
 
 
 def test_exactly_four_commands_registered() -> None:
-    """Spec §9: exactly four commands, no fifth in v0.1."""
     click_app = typer.main.get_command(app)
     assert set(click_app.commands.keys()) == {"index", "context", "clean", "doctor"}
 
@@ -64,16 +57,29 @@ def test_context_stub_runs_and_reports_not_implemented(tmp_path: object) -> None
     assert "not implemented" in result.output
 
 
-def test_clean_stub_runs_and_reports_not_implemented(tmp_path: object) -> None:
+def test_clean_on_missing_cache_reports_nothing_to_clean(tmp_path: object) -> None:
     result = runner.invoke(app, ["clean", "--repo", str(tmp_path)])
-    assert result.exit_code == 1
-    assert "not implemented" in result.output
+    assert result.exit_code == 0
+    assert "nothing to clean" in result.output
 
 
-def test_doctor_stub_runs_and_reports_not_implemented() -> None:
-    result = runner.invoke(app, ["doctor"])
-    assert result.exit_code == 1
-    assert "not implemented" in result.output
+def test_clean_removes_existing_cache(tmp_path: object) -> None:
+    from pathlib import Path
+
+    from rylox.cache import ensure_cache_dir
+
+    ensure_cache_dir(Path(str(tmp_path)))
+    result = runner.invoke(app, ["clean", "--repo", str(tmp_path)])
+    assert result.exit_code == 0
+    assert not (Path(str(tmp_path)) / ".rylox").exists()
+
+
+def test_doctor_runs_and_reports_checks(tmp_path: object) -> None:
+    result = runner.invoke(app, ["doctor", "--repo", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "python_version" in result.output
+    assert "tree_sitter" in result.output
+    assert "cache_manifest" in result.output
 
 
 def test_index_rejects_nonexistent_repo_path() -> None:
