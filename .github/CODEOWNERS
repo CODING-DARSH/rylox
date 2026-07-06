@@ -1,0 +1,25 @@
+# ------------------------------------------------------------
+# Rylox Code Owners
+#
+# Code owners are automatically requested to review pull requests
+# that modify matching files.
+# ------------------------------------------------------------
+
+# GitHub configuration
+.github/ @CODING-DARSH
+
+# Source code
+src/ @CODING-DARSH
+
+# Tests
+tests/ @CODING-DARSH
+
+# Documentation
+docs/ @CODING-DARSH
+
+README.md @CODING-DARSH
+CONTRIBUTING.md @CODING-DARSH
+CONTRIBUTORS.md @CODING-DARSH
+
+# Default owner
+* @CODING-DARSH
