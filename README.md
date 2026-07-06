@@ -1,15 +1,15 @@
 # Rylox
 
-**Rylox** is a local, vendor-independent repository context engine for Python codebases.
+**Rylox** is a fast, local repository context engine for Python codebases.
 
-It builds a structured index of your repository and generates relationship-aware,
-token-budgeted context that can be used with any large language model. Rylox
-operates entirely offline during indexing and retrieval—no API keys, network
-requests, or hosted services are required.
+It analyzes your repository, builds a structured semantic index, and retrieves
+relationship-aware, token-budgeted context that can be used with any large
+language model.
 
-Instead of relying on simple keyword search or sending entire repositories to an
-LLM, Rylox analyzes source code structure, extracts meaningful semantic units,
-and retrieves only the code that is relevant to a given task.
+Unlike keyword search or sending entire repositories to an LLM, Rylox
+understands the structure of your codebase and selects only the code that is
+relevant to the task. Indexing and retrieval run completely offline—no API
+keys, cloud services, or vendor-specific integrations required.
 
 ```bash
 rylox index
@@ -17,35 +17,87 @@ rylox context "How does authentication work?" --max-tokens 20000
 ```
 
 The generated output is a structured Markdown document that can be pasted
-directly into any LLM while staying within the requested token budget.
+directly into ChatGPT, Claude, Gemini, Codex, or any other LLM while remaining
+within the requested token budget.
+
+---
+
+## Why Rylox?
+
+Large repositories quickly exceed an LLM's context window. Traditional keyword
+search often retrieves unrelated files, while embedding-based approaches require
+external services or non-deterministic ranking.
+
+Rylox takes a different approach by analyzing the repository's structure,
+extracting semantic code units, and building deterministic context from actual
+relationships inside the codebase.
 
 ---
 
 ## Features
 
-- 🚀 Incremental repository indexing using SHA-256 content hashing
-- 🌳 Tree-sitter powered Python parsing
-- 📦 Function, method, and class-level semantic chunking
-- 📄 Rich metadata extraction (paths, line ranges, parent classes, and docstrings)
-- 💾 Persistent on-disk index cache
-- 📁 Configurable ignore patterns with `.gitignore` support
-- 🔒 Offline-first architecture with no external dependencies during retrieval
-- 🧪 Comprehensive unit test coverage
-- 🖥️ Cross-platform support
+- Incremental indexing using SHA-256 content hashing
+- Tree-sitter powered Python parsing
+- Semantic chunking at the function, method, and class level
+- Relationship-aware context retrieval
+- Token-budgeted context generation
+- Rich metadata extraction
+  - file paths
+  - line ranges
+  - parent classes
+  - signatures
+  - docstrings
+- Persistent on-disk index cache
+- `.gitignore` and configurable ignore pattern support
+- Offline-first architecture
+- Cross-platform support
+- Comprehensive unit tests
+
+---
+
+## Example
+
+Index a repository:
+
+```bash
+rylox index
+```
+
+Generate context for an LLM:
+
+```bash
+rylox context \
+  "How does authentication work?" \
+  --max-tokens 20000
+```
+
+Rylox returns a structured Markdown document containing only the most relevant
+parts of the repository while respecting the requested token budget.
 
 ---
 
 ## Philosophy
 
-Rylox is designed around three principles:
+Rylox is built around three core principles.
 
-- **Offline First** — Repository indexing and retrieval never require an internet connection.
-- **Vendor Independent** — Generated context works with any language model instead of being tied to a specific provider.
-- **Deterministic Retrieval** — Context generation is reproducible and based on repository structure rather than opaque LLM reasoning.
+### Offline First
+
+Repository indexing and retrieval never require an internet connection.
+
+### Vendor Independent
+
+The generated context is provider-agnostic and works with any language model.
+
+### Deterministic Retrieval
+
+Context generation is reproducible and driven by repository structure rather
+than opaque ranking heuristics.
 
 ---
 
 ## Installation
+
+Install from source:
 
 ```bash
 pip install -e ".[dev]"
@@ -53,22 +105,18 @@ pip install -e ".[dev]"
 
 ---
 
-## Development
+## Supported Language
 
-Run the project's quality checks before submitting changes.
+Current release:
 
-```bash
-ruff check .
-mypy src
-pytest
-```
+- Python
 
----
-
-```
+Future releases are designed to support additional programming languages through
+Tree-sitter grammars.
 
 ---
 
 ## License
 
-Rylox is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details.
+Rylox is licensed under the Apache License 2.0. See the
+[LICENSE](LICENSE) file for details.

@@ -1,6 +1,6 @@
 [project]
 name = "rylox"
-version = "0.1.0"
+version = "0.0.1"
 description = "Local, deterministic repository context engine — turns a codebase + task into a token-budgeted markdown context package."
 readme = "README.md"
 license = { text = "Apache-2.0" }
