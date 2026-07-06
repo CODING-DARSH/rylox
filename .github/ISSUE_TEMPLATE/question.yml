@@ -1,0 +1,25 @@
+name: Question / Discussion
+description: Ask a question or start a discussion about Rylox.
+title: "[Question]: "
+labels:
+  - question
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for your interest in Rylox!
+
+        Feel free to ask questions about usage, design decisions, implementation details, or anything else related to the project.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
