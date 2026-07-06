@@ -1,10 +1,7 @@
 blank_issues_enabled: true
 
 contact_links:
-  - name: 💬 Discussions
-    url: https://github.com/YOUR_USERNAME/rylox/discussions
-    about: Ask general questions or discuss ideas with the community.
 
   - name: 📖 Contributing Guide
-    url: https://github.com/YOUR_USERNAME/rylox/blob/main/CONTRIBUTING.md
+    url: https://github.com/CODING-DARSH/rylox/blob/main/CONTRIBUTING.md
     about: Read the contribution guidelines before opening a pull request.
