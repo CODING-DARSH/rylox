@@ -3,7 +3,8 @@
 Scope for this module, deliberately narrow:
   - integrate tree-sitter-python and parse .py source into an AST
   - chunk at function / method / class granularity (never file, never line)
-  - store per-chunk metadata: file path, line range, parent class, docstring
+  - store per-chunk metadata: file path, line range, parent class, docstring,
+    source text
   - skip a file tree-sitter can't parse without crashing the whole run
 
 Explicitly NOT in this module yet (later phases): content hashing for
@@ -16,21 +17,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 import tree_sitter_python as tspython
 from tree_sitter import Language, Node, Parser
 
 _PY_LANGUAGE = Language(tspython.language(), "python")
 
+# One parser instance, reused across calls. tree_sitter.Parser holds no
+# per-parse mutable state worth avoiding reuse over, so constructing a new
+# one on every parse_source() call was pure overhead.
+_PARSER = Parser()
+_PARSER.set_language(_PY_LANGUAGE)
 
-def _make_parser() -> Parser:
-    parser = Parser()
-    parser.set_language(_PY_LANGUAGE)
-    return parser
-
-
-ChunkKind = str  # "function" | "method" | "class" — kept as str for py3.9-friendly simplicity
+ChunkKind = Literal["function", "method", "class"]
 
 
 @dataclass(frozen=True)
@@ -40,10 +40,11 @@ class Chunk:
     path: Path
     kind: ChunkKind
     name: str
-    start_line: int  # 1-indexed, inclusive
+    start_line: int  # 1-indexed, inclusive. Includes decorator lines, if any.
     end_line: int  # 1-indexed, inclusive
     parent_class: Optional[str]
     docstring: Optional[str]
+    content: str  # exact source text of the chunk, decorators included
 
 
 @dataclass
@@ -67,8 +68,7 @@ def parse_source(source: str, path: Path) -> list[Chunk]:
     behavior directly unit-testable against hand-written source strings,
     independent of `parse_file`'s I/O and error handling.
     """
-    parser = _make_parser()
-    tree = parser.parse(source.encode("utf-8"))
+    tree = _PARSER.parse(source.encode("utf-8"))
     lines = source.splitlines()
     chunks: list[Chunk] = []
     _walk(tree.root_node, path, lines, parent_class=None, chunks=chunks)
@@ -81,7 +81,7 @@ def parse_file(path: Path) -> ParseResult:
     empty chunk list, per spec §12.
     """
     try:
-        source = path.read_text(encoding="utf-8")
+        source = path.read_text(encoding="utf-8-sig")
     except (OSError, UnicodeDecodeError) as exc:
         return ParseResult(chunks=[], error=f"{path}: could not read file ({exc})")
 
@@ -105,43 +105,73 @@ def _walk(
     chunks: list[Chunk],
 ) -> None:
     for child in node.children:
-        if child.type == "class_definition":
-            name = _node_name(child)
+        # Decorated definitions (@foo\ndef bar(): ...) wrap the real
+        # function_definition/class_definition in a decorated_definition
+        # node. Unwrap it, but keep the *outer* node's start point so the
+        # decorator line(s) are included in the chunk's span — the
+        # decorator is semantically part of the unit being chunked.
+        target = child
+        span_start = child
+        if child.type == "decorated_definition":
+            inner = child.child_by_field_name("definition")
+            if inner is None:
+                _walk(child, path, lines, parent_class=parent_class, chunks=chunks)
+                continue
+            target = inner
+            span_start = child
+
+        if target.type == "class_definition":
+            name = _node_name(target)
             chunks.append(
                 Chunk(
                     path=path,
                     kind="class",
                     name=name,
-                    start_line=child.start_point[0] + 1,
-                    end_line=child.end_point[0] + 1,
+                    start_line=span_start.start_point[0] + 1,
+                    end_line=target.end_point[0] + 1,
                     parent_class=parent_class,
-                    docstring=_docstring(child, lines),
+                    docstring=_docstring(target, lines),
+                    content=_content(span_start, lines),
                 )
             )
             # Recurse with this class as the new parent_class, so nested
-            # function_definitions inside it are chunked as methods.
-            _walk(child, path, lines, parent_class=name, chunks=chunks)
+            # function_definitions/class_definitions inside it are chunked
+            # as methods/nested classes respectively.
+            _walk(target, path, lines, parent_class=name, chunks=chunks)
 
-        elif child.type == "function_definition":
-            name = _node_name(child)
+        elif target.type == "function_definition":
+            name = _node_name(target)
             chunks.append(
                 Chunk(
                     path=path,
                     kind="method" if parent_class is not None else "function",
                     name=name,
-                    start_line=child.start_point[0] + 1,
-                    end_line=child.end_point[0] + 1,
+                    start_line=span_start.start_point[0] + 1,
+                    end_line=target.end_point[0] + 1,
                     parent_class=parent_class,
-                    docstring=_docstring(child, lines),
+                    docstring=_docstring(target, lines),
+                    content=_content(span_start, lines),
                 )
             )
             # Recurse without a parent_class: a function nested inside
             # another function is chunked as its own top-level-style
             # "function" (v0.1 doesn't track function-in-function nesting).
-            _walk(child, path, lines, parent_class=None, chunks=chunks)
+            _walk(target, path, lines, parent_class=None, chunks=chunks)
 
         else:
             _walk(child, path, lines, parent_class=parent_class, chunks=chunks)
+
+
+def _content(span_start: Node, lines: list[str]) -> str:
+    """Exact source text of the chunk's span (decorator lines included, if any).
+
+    Safe for both plain definitions and decorated_definition wrappers: a
+    decorator can only add lines *before* the def/class line, never after,
+    so span_start.end_point always matches the inner definition's end.
+    """
+    start = span_start.start_point[0]
+    end = span_start.end_point[0]
+    return "\n".join(lines[start : end + 1])
 
 
 def _node_name(def_node: Node) -> str:
