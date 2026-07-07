@@ -38,7 +38,7 @@ class VectorStore:
 
     @property
     def size(self) -> int:
-        return self._index.ntotal
+        return int(self._index.ntotal)
 
     def search(self, query_vector: list[float], top_k: int) -> list[SearchResult]:
         if len(query_vector) != self._dimension:
