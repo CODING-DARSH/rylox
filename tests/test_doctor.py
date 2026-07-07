@@ -45,31 +45,37 @@ def test_check_tree_sitter_fails_when_parsing_raises() -> None:
     assert "boom" in result.detail
 
 
-def test_check_faiss_passes_import_when_available() -> None:
+def test_check_faiss_passes_with_real_round_trip() -> None:
     result = doctor._check_faiss()
-    # faiss-cpu is a hard runtime dependency (pyproject.toml), so on any
-    # environment where the test suite itself runs, it must be importable.
-    assert result.status in ("pass", "skip")
-    if result.status == "skip":
-        assert "round-trip" in result.detail
+    # faiss-cpu is a hard runtime dependency (pyproject.toml) and the check
+    # now does a genuine build+search round-trip, so this must pass on any
+    # environment where the test suite itself runs.
+    assert result.status == "pass"
+    assert "round-trip works" in result.detail
 
 
-def test_check_faiss_fails_when_not_importable() -> None:
-    with patch.dict(sys.modules, {"faiss": None}):
+def test_check_faiss_fails_when_build_index_raises() -> None:
+    # doctor._check_faiss() imports build_index from rylox.vectorstore via a
+    # local `from ... import` statement, which re-resolves the name fresh on
+    # every call — so patching rylox.vectorstore.build_index directly works,
+    # whereas patching sys.modules["faiss"] would not: vectorstore.py's own
+    # `import faiss` already resolved a real faiss reference at its own
+    # import time, and that binding isn't affected by mutating sys.modules
+    # afterward.
+    with patch("rylox.vectorstore.build_index", side_effect=RuntimeError("boom")):
         result = doctor._check_faiss()
     assert result.status == "fail"
-    assert "not importable" in result.detail
+    assert "not usable" in result.detail
 
 
-def test_check_embedding_model_skips_when_onnxruntime_importable() -> None:
+def test_check_embedding_model_skips_when_sentence_transformers_importable() -> None:
     result = doctor._check_embedding_model()
-    assert result.status in ("skip", "fail")
-    if result.status == "skip":
-        assert "not yet wired" in result.detail
+    assert result.status == "skip"
+    assert "torch backend" in result.detail
 
 
 def test_check_embedding_model_fails_when_not_importable() -> None:
-    with patch.dict(sys.modules, {"onnxruntime": None}):
+    with patch.dict(sys.modules, {"sentence_transformers": None}):
         result = doctor._check_embedding_model()
     assert result.status == "fail"
     assert "not importable" in result.detail

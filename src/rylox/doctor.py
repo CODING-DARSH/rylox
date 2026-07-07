@@ -58,27 +58,28 @@ def _check_tree_sitter() -> CheckResult:
 
 def _check_faiss() -> CheckResult:
     try:
-        import faiss  # noqa: F401
-    except ImportError:
-        return CheckResult("faiss", "fail", "faiss-cpu is not importable")
-    return CheckResult(
-        "faiss",
-        "skip",
-        "faiss is importable; index/search round-trip check not yet wired "
-        "(planned for retrieval phase)",
-    )
+        from rylox.vectorstore import build_index
+
+        store = build_index([[1.0, 0.0], [0.0, 1.0]])
+        results = store.search([1.0, 0.0], top_k=1)
+        if not results or results[0].index != 0:
+            return CheckResult("faiss", "fail", "faiss round-trip returned an unexpected result")
+    except Exception as exc:  # noqa: BLE001 - any failure here is a real doctor finding
+        return CheckResult("faiss", "fail", f"faiss not usable: {exc}")
+    return CheckResult("faiss", "pass", "faiss importable, index/search round-trip works")
 
 
 def _check_embedding_model() -> CheckResult:
     try:
-        import onnxruntime  # noqa: F401
+        import sentence_transformers  # noqa: F401
     except ImportError:
-        return CheckResult("embedding_model", "fail", "onnxruntime is not importable")
+        return CheckResult("embedding_model", "fail", "sentence-transformers is not importable")
     return CheckResult(
         "embedding_model",
         "skip",
-        "onnxruntime is importable; model load/download check not yet wired "
-        "(planned for retrieval phase)",
+        "sentence-transformers is importable; actual model download/inference "
+        "not checked here (requires network, too slow for a health check) — "
+        "runs on the torch backend, see KNOWN_LIMITATIONS.md",
     )
 
 

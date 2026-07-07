@@ -1,3 +1,5 @@
+"""Rylox CLI — exactly four commands. No fifth command in v0.1."""
+
 from __future__ import annotations
 
 import shutil
@@ -7,8 +9,11 @@ from typing import Optional
 import typer
 
 from rylox import __version__
+from rylox.config import load_or_write_defaults
 from rylox.doctor import run_doctor
 from rylox.errors import RyloxError
+from rylox.indexer import run_index
+from rylox.retrieval import update_embeddings
 
 app = typer.Typer(
     name="rylox",
@@ -47,7 +52,28 @@ def index(
     ),
 ) -> None:
     """Build or incrementally update the local `.rylox/` index."""
-    _not_implemented("index")
+    config = load_or_write_defaults(repo)
+
+    chunk_report = run_index(repo, config)
+    typer.echo(
+        f"chunks: {chunk_report.changed} changed, {chunk_report.unchanged} unchanged, "
+        f"{chunk_report.deleted} deleted ({chunk_report.total_files} files tracked)"
+    )
+    for warning in chunk_report.parse_errors:
+        typer.echo(f"[warn] {warning}", err=True)
+    for skipped in chunk_report.skipped_too_large:
+        typer.echo(f"[warn] skipped (too large): {skipped}", err=True)
+    for skipped in chunk_report.skipped_symlink_escape:
+        typer.echo(f"[warn] skipped (symlink escapes repo): {skipped}", err=True)
+
+    embed_report = update_embeddings(repo, config)
+    if embed_report.model_changed:
+        typer.echo("embedding model changed since last run — full re-embed performed")
+    typer.echo(
+        f"embeddings: {embed_report.embedded_files} files embedded, "
+        f"{embed_report.reused_files} reused, {embed_report.deleted_files} deleted "
+        f"({embed_report.total_chunks} chunks total)"
+    )
 
 
 @app.command()
@@ -68,7 +94,13 @@ def context(
     """Assemble a token-budgeted, relationship-aware context package for TASK."""
     if output_format != "markdown":
         raise typer.BadParameter("Only --format markdown is supported in v0.1.")
-    _not_implemented("context")
+    typer.echo(
+        "rylox context: not implemented yet — retrieval fusion, relationship "
+        "expansion, and context assembly are not built yet. Run `rylox index` "
+        "to build the index in the meantime.",
+        err=True,
+    )
+    raise typer.Exit(code=1)
 
 
 @app.command()
@@ -103,17 +135,6 @@ def doctor(
 
     if any(r.status == "fail" for r in results):
         raise typer.Exit(code=1)
-
-
-def _not_implemented(command: str) -> None:
-    """Placeholder body for Phase 1 stubs.
-
-    Deliberately visible and non-zero-exit rather than a silent no-op, so
-    running any command today tells you honestly that it's unbuilt instead
-    of pretending to succeed.
-    """
-    typer.echo(f"rylox {command}: not implemented yet (Phase 1 skeleton)", err=True)
-    raise typer.Exit(code=1)
 
 
 def run() -> None:

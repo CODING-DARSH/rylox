@@ -32,10 +32,52 @@ def test_exactly_four_commands_registered() -> None:
     assert set(click_app.commands.keys()) == {"index", "context", "clean", "doctor"}
 
 
-def test_index_stub_runs_and_reports_not_implemented(tmp_path: object) -> None:
-    result = runner.invoke(app, ["index", "--repo", str(tmp_path)])
-    assert result.exit_code == 1
-    assert "not implemented" in result.output
+def test_index_runs_full_pipeline_and_reports_summary(tmp_path: object) -> None:
+    from pathlib import Path
+    from unittest.mock import patch
+
+    class _FakeEmbedder:
+        def __init__(self, model: str) -> None:
+            self.model = model
+
+        def embed(self, texts: list) -> list:
+            return [[float(len(t)), 0.0] for t in texts]
+
+    repo = Path(str(tmp_path))
+    (repo / "a.py").write_text("def a():\n    pass\n", encoding="utf-8")
+
+    with patch("rylox.retrieval.get_embedder", return_value=_FakeEmbedder("fake")):
+        result = runner.invoke(app, ["index", "--repo", str(repo)])
+
+    assert result.exit_code == 0
+    assert "chunks: 1 changed" in result.output
+    assert "embeddings: 1 files embedded" in result.output
+    assert (repo / "rylox.toml").exists()
+    assert (repo / ".rylox" / "index.json").exists()
+    assert (repo / ".rylox" / "embeddings.json").exists()
+
+
+def test_index_second_run_reuses_unchanged_embeddings(tmp_path: object) -> None:
+    from pathlib import Path
+    from unittest.mock import patch
+
+    class _FakeEmbedder:
+        def __init__(self, model: str) -> None:
+            self.model = model
+
+        def embed(self, texts: list) -> list:
+            return [[float(len(t)), 0.0] for t in texts]
+
+    repo = Path(str(tmp_path))
+    (repo / "a.py").write_text("def a():\n    pass\n", encoding="utf-8")
+
+    with patch("rylox.retrieval.get_embedder", return_value=_FakeEmbedder("fake")):
+        runner.invoke(app, ["index", "--repo", str(repo)])
+        result = runner.invoke(app, ["index", "--repo", str(repo)])
+
+    assert result.exit_code == 0
+    assert "chunks: 0 changed, 1 unchanged" in result.output
+    assert "embeddings: 0 files embedded, 1 reused" in result.output
 
 
 def test_context_requires_task_argument() -> None:
@@ -55,6 +97,7 @@ def test_context_stub_runs_and_reports_not_implemented(tmp_path: object) -> None
     result = runner.invoke(app, ["context", "how does auth work", "--repo", str(tmp_path)])
     assert result.exit_code == 1
     assert "not implemented" in result.output
+    assert "rylox index" in result.output
 
 
 def test_clean_on_missing_cache_reports_nothing_to_clean(tmp_path: object) -> None:
