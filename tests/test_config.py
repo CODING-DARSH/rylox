@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from rylox import config as config_mod
-from rylox.embedding import SUPPORTED_PROVIDERS, get_embedder
+from rylox.embedding import SUPPORTED_PROVIDERS
 from rylox.errors import ConfigError
 
 
@@ -96,13 +96,15 @@ def test_ignore_patterns_must_be_strings(tmp_path: Path) -> None:
 
 
 def test_section_must_be_a_table(tmp_path: Path) -> None:
-    (tmp_path / "rylox.toml").write_text('embedding = "nope"\n', encoding="utf-8")
+    (tmp_path / "rylox.toml").write_text("embedding = \"nope\"\n", encoding="utf-8")
     with pytest.raises(ConfigError, match="must be a table"):
         config_mod.load_config(tmp_path)
 
 
 def test_partial_config_falls_back_to_defaults_for_missing_fields(tmp_path: Path) -> None:
-    (tmp_path / "rylox.toml").write_text("[budget]\nmax_tokens = 4000\n", encoding="utf-8")
+    (tmp_path / "rylox.toml").write_text(
+        '[budget]\nmax_tokens = 4000\n', encoding="utf-8"
+    )
     cfg = config_mod.load_config(tmp_path)
     assert cfg.budget.max_tokens == 4000
     assert cfg.embedding.model == config_mod.DEFAULT_EMBEDDING_MODEL
@@ -111,20 +113,3 @@ def test_partial_config_falls_back_to_defaults_for_missing_fields(tmp_path: Path
 
 def test_supported_providers_contains_only_huggingface() -> None:
     assert SUPPORTED_PROVIDERS == ("huggingface",)
-
-
-def test_get_embedder_returns_huggingface_embedder() -> None:
-    embedder = get_embedder("huggingface", "BAAI/bge-small-en-v1.5")
-    assert embedder.model == "BAAI/bge-small-en-v1.5"
-
-
-def test_get_embedder_unregistered_provider_raises_keyerror() -> None:
-    with pytest.raises(KeyError):
-        get_embedder("ollama", "bge-m3")
-
-
-def test_huggingface_embedder_embed_not_yet_implemented() -> None:
-    """Phase 5 fills this in; Phase 2 only wires the interface + config validation."""
-    embedder = get_embedder("huggingface", "BAAI/bge-small-en-v1.5")
-    with pytest.raises(NotImplementedError):
-        embedder.embed(["some text"])

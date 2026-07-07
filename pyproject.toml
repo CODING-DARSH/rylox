@@ -1,11 +1,11 @@
 [project]
 name = "rylox"
-version = "0.0.2"
+version = "0.1.0"
 description = "Local, deterministic repository context engine — turns a codebase + task into a token-budgeted markdown context package."
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.9,<3.13"
-authors = [{ name = "Darsh Vithlani" }]
+authors = [{ name = "Rylox contributors" }]
 keywords = ["retrieval", "code-search", "context-engine", "rag", "llm-tooling"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -26,7 +26,7 @@ dependencies = [
     "tree-sitter-python>=0.21,<0.22",
     "faiss-cpu>=1.7.4,<2.0",
     "rank-bm25>=0.2.2,<0.3",
-    "sentence-transformers>=2.7,<3.0",
+    "sentence-transformers>=3.2,<4.0",
     "onnxruntime>=1.17,<2.0",
     "numpy<2.1",  # 2.1+ stub files use PEP 695 syntax that breaks mypy stub parsing
     "tomli>=2.0,<3.0; python_version < '3.11'",
@@ -78,6 +78,10 @@ packages = ["rylox"]
 
 [[tool.mypy.overrides]]
 module = "tomli"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "sentence_transformers"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
