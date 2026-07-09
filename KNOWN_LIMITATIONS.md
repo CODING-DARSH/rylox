@@ -108,6 +108,40 @@ matter.
 
 ---
 
+## bm25.py
+
+**BM25's IDF formula can degenerate to exactly zero on very small corpora.**
+Classical BM25 IDF is `ln((N - n + 0.5) / (n + 0.5))`, which crosses zero
+when a term appears in almost exactly half the documents. Confirmed
+directly: with `N=2` documents and a term in `n=1` of them, IDF is
+`ln(1.5/1.5) = 0`, so that term contributes nothing to any score,
+regardless of how relevant it actually is. This is a real property of
+the classical formula, not a bug — it just means BM25 alone is
+unreliable on tiny corpora (a handful of chunks). Not a practical concern
+for real repositories (hundreds/thousands of chunks), where this
+zero-crossing essentially never lines up with a genuinely relevant term.
+Worth remembering if a golden-set regression test ever uses a
+suspiciously small fixture repo and BM25 scores look flat — check corpus
+size before assuming a bug.
+
+**Identifier tokenization splits on underscores, not camelCase.**
+`login_user` tokenizes to `login_user`, `login`, and `user`, so a query
+for "login" matches it. `loginUser` (camelCase) does not get the same
+treatment — it tokenizes as one token, `loginuser`. Python convention is
+overwhelmingly snake_case, so this covers the common case, but a
+camelCase-heavy codebase (or Python code calling into a camelCase
+external API) would see worse sparse-retrieval recall on those specific
+identifiers.
+
+## retrieval.py
+
+**Candidate pool size before fusion is a fixed heuristic, not tuned.**
+`search()` pulls `max(top_k * 5, 50)` candidates from each of dense and
+sparse before fusing, capped at the actual index size. This is a
+reasonable starting guess, not a measured-good value — worth revisiting
+once the golden-set regression suite (planned, not built yet) can
+actually measure whether a wider or narrower pool changes recall.
+
 ## indexer.py
 
 **`.gitignore` support is simplified `fnmatch`, not the real gitignore spec.**

@@ -126,17 +126,84 @@ def test_load_chunk_vector_index_without_embeddings_raises(tmp_path: Path) -> No
 
 
 def test_search_returns_chunks_ranked_by_similarity(tmp_path: Path) -> None:
+    # Realistic corpus size matters here: with only 2 documents, BM25's IDF
+    # formula can degenerate to exactly zero for a term appearing in half
+    # the corpus (see KNOWN_LIMITATIONS.md), silently making this test pass
+    # off the dense signal alone without ever exercising sparse retrieval.
     _write(tmp_path, "a.py", "def xxxxx():\n    pass\n")
     _write(tmp_path, "b.py", "def y():\n    pass\n")
+    _write(tmp_path, "c.py", "def z():\n    pass\n")
+    _write(tmp_path, "d.py", "def w():\n    pass\n")
     run_index(tmp_path, RyloxConfig())
 
     fake = _FakeEmbedder("fake")
     with patch("rylox.retrieval.get_embedder", return_value=fake):
         retrieval.update_embeddings(tmp_path, RyloxConfig())
-        results = retrieval.search(tmp_path, RyloxConfig(), "xxxxxxxxxx", top_k=2)
+        results = retrieval.search(tmp_path, RyloxConfig(), "xxxxxxxxxx", top_k=4)
 
-    assert len(results) == 2
-    assert results[0][0].name == "xxxxx"
+    assert len(results) == 4
+    assert results[0].chunk.name == "xxxxx"
+
+
+def test_search_sparse_signal_overrides_a_wrong_dense_ranking(tmp_path: Path) -> None:
+    """A real adversarial case: dense actively prefers the wrong chunk,
+    and only BM25 (lexical match on 'login'/'username'/'password') can
+    correct it. Proves the two signals are genuinely combined through the
+    real search() path, not just that fusion.py works in isolation.
+    """
+    _write(
+        tmp_path,
+        "auth.py",
+        "def login_user(username, password):\n"
+        "    check_login_username_password(username, password)\n",
+    )
+    _write(tmp_path, "b.py", "def unrelated_thing():\n    pass\n")
+    _write(tmp_path, "c.py", "def another_function():\n    do_something_else()\n")
+    _write(tmp_path, "d.py", "def yet_another():\n    more_unrelated_code()\n")
+    run_index(tmp_path, RyloxConfig())
+
+    class _AdversarialEmbedder:
+        """Dense is mildly mistaken, not maximally inverted: it ranks
+        'unrelated_thing' 1st and the correct 'login_user' 2nd. A
+        perfectly symmetric rank-swap (1st vs last in both lists) always
+        ties exactly under RRF regardless of k — that's inherent to
+        rank-based fusion, not a bug (see test_fusion.py's k-invariance
+        test) — so a realistic adversarial case needs dense's mistake to
+        be marginal, which sparse's strong, correct signal then corrects.
+        """
+
+        def __init__(self, model: str) -> None:
+            self.model = model
+
+        def embed(self, texts: list[str]) -> list[list[float]]:
+            vectors = []
+            for t in texts:
+                if "unrelated_thing" in t or t == "login username password":
+                    vectors.append([1.0, 0.0])
+                elif "login_user" in t:
+                    vectors.append([0.9, 0.1])
+                elif "another_function" in t:
+                    vectors.append([0.5, 0.5])
+                else:
+                    vectors.append([0.3, 0.7])
+            return vectors
+
+    adversarial = _AdversarialEmbedder("adversarial")
+    with patch("rylox.retrieval.get_embedder", return_value=adversarial):
+        retrieval.update_embeddings(tmp_path, RyloxConfig())
+
+        # Confirm the adversarial setup actually works as intended: dense
+        # alone really does pick the wrong chunk, so the test below is
+        # meaningful rather than accidentally already correct.
+        index = retrieval.load_chunk_vector_index(tmp_path)
+        query_vector = adversarial.embed(["login username password"])[0]
+        dense_only = index.store.search(query_vector, top_k=4)
+        assert index.resolve(dense_only[0].index).name == "unrelated_thing"
+
+        results = retrieval.search(tmp_path, RyloxConfig(), "login username password", top_k=4)
+
+    assert results[0].chunk.name == "login_user"
+    assert "sparse" in results[0].sources
 
 
 def test_search_top_k_respected(tmp_path: Path) -> None:

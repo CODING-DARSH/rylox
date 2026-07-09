@@ -4,11 +4,21 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from rylox import cache
+from rylox.bm25 import BM25Index, build_bm25_index
 from rylox.cache import CachedChunk
 from rylox.config import RyloxConfig
 from rylox.embedding import get_embedder
 from rylox.errors import IndexNotFoundError
+from rylox.fusion import reciprocal_rank_fusion
 from rylox.vectorstore import VectorStore, build_index
+
+# How many candidates to pull from each of dense/sparse before fusing.
+# Wider than the final top_k so RRF has enough overlap to work with —
+# fusing two lists that are each already clipped to top_k loses exactly
+# the candidates that would have ranked second-best in one source but
+# still relevant overall.
+_CANDIDATE_POOL_MULTIPLIER = 5
+_MIN_CANDIDATE_POOL = 50
 
 
 @dataclass
@@ -65,10 +75,11 @@ def update_embeddings(repo: Path, config: RyloxConfig) -> EmbeddingUpdateReport:
 @dataclass
 class ChunkVectorIndex:
     store: VectorStore
+    bm25: BM25Index
     chunks: list[CachedChunk] = field(default_factory=list)
 
-    def resolve(self, vector_index: int) -> CachedChunk:
-        return self.chunks[vector_index]
+    def resolve(self, index: int) -> CachedChunk:
+        return self.chunks[index]
 
 
 class NoEmbeddedChunksError(Exception):
@@ -104,16 +115,40 @@ def load_chunk_vector_index(repo: Path) -> ChunkVectorIndex:
             "no embedded chunks found. Run indexing and the embedding update first."
         )
 
-    return ChunkVectorIndex(store=build_index(vectors), chunks=chunks)
+    bm25 = build_bm25_index([chunk.content for chunk in chunks])
+    return ChunkVectorIndex(store=build_index(vectors), bm25=bm25, chunks=chunks)
+
+
+@dataclass(frozen=True)
+class FusedSearchResult:
+    chunk: CachedChunk
+    score: float
+    sources: frozenset[str]  # {"dense"}, {"sparse"}, or {"dense", "sparse"}
 
 
 def search(
     repo: Path, config: RyloxConfig, query: str, top_k: int
-) -> list[tuple[CachedChunk, float]]:
-    """Embed `query` and return the top_k most similar chunks currently indexed."""
-    vector_index = load_chunk_vector_index(repo)
+) -> list[FusedSearchResult]:
+    """Return the top_k chunks for `query`, fusing dense (FAISS) and sparse
+    (BM25) retrieval via Reciprocal Rank Fusion rather than either alone.
+    """
+    index = load_chunk_vector_index(repo)
+
+    pool_size = min(index.store.size, max(top_k * _CANDIDATE_POOL_MULTIPLIER, _MIN_CANDIDATE_POOL))
+
     embedder = get_embedder(config.embedding.provider, config.embedding.model)
     query_vector = embedder.embed([query])[0]
+    dense_hits = index.store.search(query_vector, top_k=pool_size)
+    sparse_hits = index.bm25.search(query, top_k=pool_size)
 
-    results = vector_index.store.search(query_vector, top_k=top_k)
-    return [(vector_index.resolve(r.index), r.score) for r in results]
+    fused = reciprocal_rank_fusion(
+        {
+            "dense": [hit.index for hit in dense_hits],
+            "sparse": [hit.index for hit in sparse_hits],
+        }
+    )
+
+    return [
+        FusedSearchResult(chunk=index.resolve(r.index), score=r.score, sources=r.sources)
+        for r in fused[:top_k]
+    ]
