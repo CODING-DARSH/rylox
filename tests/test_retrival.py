@@ -150,6 +150,22 @@ def test_search_sparse_signal_overrides_a_wrong_dense_ranking(tmp_path: Path) ->
     and only BM25 (lexical match on 'login'/'username'/'password') can
     correct it. Proves the two signals are genuinely combined through the
     real search() path, not just that fusion.py works in isolation.
+
+    Two things had to be fixed to make this construction actually work,
+    both discovered empirically rather than assumed:
+
+    1. A simple rank1<->rank2 swap of the same two items between dense and
+       sparse produces an EXACT tie under RRF (traced and confirmed with
+       real numbers: both land on 0.03252247488101534) — a general
+       property of rank-based fusion (see test_fusion.py's k-invariance
+       test for the related 1st/last-rank case), not a bug. A fourth
+       chunk ('another_function') is given a small, genuine lexical
+       overlap so it lands at sparse rank 2, pushing 'unrelated_thing' to
+       sparse rank 3 — breaking the exact symmetry with a real margin.
+    2. That overlap word must not land at exactly 2-of-4 documents, or it
+       hits the same BM25 IDF zero-crossing documented in
+       KNOWN_LIMITATIONS.md (n/N = 0.5 exactly zeroes a term's IDF). A
+       fifth, fully unrelated filler file keeps that ratio at 2-of-5.
     """
     _write(
         tmp_path,
@@ -158,18 +174,18 @@ def test_search_sparse_signal_overrides_a_wrong_dense_ranking(tmp_path: Path) ->
         "    check_login_username_password(username, password)\n",
     )
     _write(tmp_path, "b.py", "def unrelated_thing():\n    pass\n")
-    _write(tmp_path, "c.py", "def another_function():\n    do_something_else()\n")
+    _write(
+        tmp_path,
+        "c.py",
+        "def another_function():\n    password_placeholder = None\n    do_something_else()\n",
+    )
     _write(tmp_path, "d.py", "def yet_another():\n    more_unrelated_code()\n")
+    _write(tmp_path, "e.py", "def fifth_filler():\n    nothing_related_here()\n")
     run_index(tmp_path, RyloxConfig())
 
     class _AdversarialEmbedder:
         """Dense is mildly mistaken, not maximally inverted: it ranks
-        'unrelated_thing' 1st and the correct 'login_user' 2nd. A
-        perfectly symmetric rank-swap (1st vs last in both lists) always
-        ties exactly under RRF regardless of k — that's inherent to
-        rank-based fusion, not a bug (see test_fusion.py's k-invariance
-        test) — so a realistic adversarial case needs dense's mistake to
-        be marginal, which sparse's strong, correct signal then corrects.
+        'unrelated_thing' 1st and the correct 'login_user' 2nd.
         """
 
         def __init__(self, model: str) -> None:
@@ -184,8 +200,10 @@ def test_search_sparse_signal_overrides_a_wrong_dense_ranking(tmp_path: Path) ->
                     vectors.append([0.9, 0.1])
                 elif "another_function" in t:
                     vectors.append([0.5, 0.5])
-                else:
+                elif "yet_another" in t:
                     vectors.append([0.3, 0.7])
+                else:
+                    vectors.append([0.2, 0.8])
             return vectors
 
     adversarial = _AdversarialEmbedder("adversarial")
@@ -197,13 +215,16 @@ def test_search_sparse_signal_overrides_a_wrong_dense_ranking(tmp_path: Path) ->
         # meaningful rather than accidentally already correct.
         index = retrieval.load_chunk_vector_index(tmp_path)
         query_vector = adversarial.embed(["login username password"])[0]
-        dense_only = index.store.search(query_vector, top_k=4)
+        dense_only = index.store.search(query_vector, top_k=5)
         assert index.resolve(dense_only[0].index).name == "unrelated_thing"
 
-        results = retrieval.search(tmp_path, RyloxConfig(), "login username password", top_k=4)
+        results = retrieval.search(tmp_path, RyloxConfig(), "login username password", top_k=5)
 
     assert results[0].chunk.name == "login_user"
     assert "sparse" in results[0].sources
+    # A real margin, not a coin-flip tie-break: the fix must leave login_user
+    # strictly ahead, not merely first due to insertion-order tie-breaking.
+    assert results[0].score > results[1].score
 
 
 def test_search_top_k_respected(tmp_path: Path) -> None:
