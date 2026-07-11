@@ -27,6 +27,15 @@ def reciprocal_rank_fusion(
     1 / (k + rank), where rank is 1-indexed. An item missing from a
     ranking simply contributes nothing from that ranking, rather than
     being penalized with a worst-case rank.
+
+    Tie-break rule, applied only when two items land on the exact same
+    fused score (this happens whenever two items simply swap the same
+    pair of rank positions between two equally-weighted rankings — a
+    mathematical property of RRF, not a bug): the item found by more
+    sources ranks first, since broader agreement across retrieval methods
+    is a more meaningful signal than an arbitrary ordering artifact.
+    If sources also tie, the lower item index wins, purely so the result
+    is fully deterministic and never depends on dict/insertion order.
     """
     scores: dict[int, float] = {}
     sources: dict[int, set[str]] = {}
@@ -42,5 +51,5 @@ def reciprocal_rank_fusion(
         FusedResult(index=idx, score=score, sources=frozenset(sources[idx]))
         for idx, score in scores.items()
     ]
-    fused.sort(key=lambda r: r.score, reverse=True)
+    fused.sort(key=lambda r: (-r.score, -len(r.sources), r.index))
     return fused

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from rylox.fusion import reciprocal_rank_fusion
+from rylox.fusion import FusedResult, reciprocal_rank_fusion
 
 
 def test_item_ranked_first_in_both_sources_wins() -> None:
@@ -62,3 +62,29 @@ def test_same_item_ranked_in_three_sources_accumulates_all_contributions() -> No
     assert results[0].sources == frozenset({"a", "b", "c"})
     single_source = reciprocal_rank_fusion({"a": [1]})
     assert results[0].score == single_source[0].score * 3
+
+
+def test_exact_tie_breaks_by_lower_index_not_insertion_order() -> None:
+    """A rank1/rank2 swap of the same two items between two equally
+    weighted rankings produces an exact score tie — a real mathematical
+    property of RRF, not a bug. The result must still be deterministic:
+    lower index wins, rather than depending on which source happened to
+    be processed first.
+    """
+    rankings = {"dense": [1, 0, 2, 3], "sparse": [0, 1, 2, 3]}
+    results = reciprocal_rank_fusion(rankings)
+    assert results[0].score == results[1].score
+    assert results[0].index == 0
+    assert results[1].index == 1
+
+
+def test_tie_break_prefers_more_sources_over_index() -> None:
+    """When fused scores are exactly equal, an item found by more sources
+    should rank first regardless of index — broader agreement across
+    retrieval methods is a more meaningful signal than an arbitrary
+    ordering artifact."""
+    fewer_sources = FusedResult(index=1, score=0.05, sources=frozenset({"dense"}))
+    more_sources = FusedResult(index=2, score=0.05, sources=frozenset({"dense", "sparse"}))
+    items = [fewer_sources, more_sources]
+    items.sort(key=lambda r: (-r.score, -len(r.sources), r.index))
+    assert items[0].index == 2
