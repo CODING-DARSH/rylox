@@ -32,7 +32,10 @@ jobs:
           python -m pip show ruff
 
       - name: Lint (ruff)
-        run: ruff check .
+        run: |
+          ruff check tests/test_graph.py --fix --diff
+          ruff check .
+
 
       - name: Type check (mypy)
         run: mypy src
