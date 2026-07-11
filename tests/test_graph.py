@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Optional
 
-from rylox.graph import build_reference_graph, expand_one_hop
-
 from rylox.cache import CachedChunk
+
+from rylox.graph import build_reference_graph, expand_one_hop
 
 
 def _chunk(name: str, content: str, parent_class: Optional[str] = None) -> CachedChunk:
