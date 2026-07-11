@@ -25,11 +25,12 @@ jobs:
 
       - name: Install package (editable, with dev deps)
         run: pip install -e ".[dev]"
-         - name: Show Ruff version
+
+      - name: Show Ruff version
         run: |
           ruff --version
           python -m pip show ruff
-          
+
       - name: Lint (ruff)
         run: ruff check .
 
