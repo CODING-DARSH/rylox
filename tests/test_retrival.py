@@ -237,3 +237,60 @@ def test_search_top_k_respected(tmp_path: Path) -> None:
         results = retrieval.search(tmp_path, RyloxConfig(), "query", top_k=1)
 
     assert len(results) == 1
+
+
+def test_search_with_expansion_includes_direct_callee_only(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "auth.py",
+        "def login():\n    check_credentials()\n\n"
+        "def check_credentials():\n    return db_lookup()\n\n"
+        "def db_lookup():\n    return True\n\n"
+        "def unrelated():\n    pass\n",
+    )
+    run_index(tmp_path, RyloxConfig())
+
+    fake = _FakeEmbedder("fake")
+    with patch("rylox.retrieval.get_embedder", return_value=fake):
+        retrieval.update_embeddings(tmp_path, RyloxConfig())
+        primary, expanded = retrieval.search_with_expansion(
+            tmp_path, RyloxConfig(), "login", top_k=1
+        )
+
+    assert primary[0].chunk.name == "login"
+    expanded_names = {e.chunk.name for e in expanded}
+    assert expanded_names == {"check_credentials"}  # not db_lookup — two hops away
+
+
+def test_search_with_expansion_scores_lower_than_primary(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "auth.py",
+        "def login():\n    check_credentials()\n\ndef check_credentials():\n    return True\n",
+    )
+    run_index(tmp_path, RyloxConfig())
+
+    fake = _FakeEmbedder("fake")
+    with patch("rylox.retrieval.get_embedder", return_value=fake):
+        retrieval.update_embeddings(tmp_path, RyloxConfig())
+        primary, expanded = retrieval.search_with_expansion(
+            tmp_path, RyloxConfig(), "login", top_k=1
+        )
+
+    assert expanded[0].score < primary[0].score
+    assert expanded[0].reason == "callee of login"
+
+
+def test_search_with_expansion_empty_primary_returns_empty_expansion(tmp_path: Path) -> None:
+    _write(tmp_path, "a.py", "def a():\n    pass\n")
+    run_index(tmp_path, RyloxConfig())
+
+    fake = _FakeEmbedder("fake")
+    with patch("rylox.retrieval.get_embedder", return_value=fake):
+        retrieval.update_embeddings(tmp_path, RyloxConfig())
+        primary, expanded = retrieval.search_with_expansion(
+            tmp_path, RyloxConfig(), "query", top_k=0
+        )
+
+    assert primary == []
+    assert expanded == []

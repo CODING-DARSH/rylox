@@ -9,7 +9,8 @@ from rylox.cache import CachedChunk
 from rylox.config import RyloxConfig
 from rylox.embedding import get_embedder
 from rylox.errors import IndexNotFoundError
-from rylox.fusion import reciprocal_rank_fusion
+from rylox.fusion import FusedResult, reciprocal_rank_fusion
+from rylox.graph import build_reference_graph, expand_one_hop
 from rylox.vectorstore import VectorStore, build_index
 
 # How many candidates to pull from each of dense/sparse before fusing.
@@ -102,7 +103,14 @@ def load_chunk_vector_index(repo: Path) -> ChunkVectorIndex:
 
     vectors: list[list[float]] = []
     chunks: list[CachedChunk] = []
-    for relpath, file_entry in chunk_manifest.files.items():
+    # Sorted explicitly rather than trusting dict insertion order: that
+    # order reflects whatever sequence files were indexed/updated in,
+    # which drifts after repeated incremental `index` runs (newly added
+    # files land at the end of the manifest dict, not merged into sorted
+    # position). Sorting here guarantees the same chunk ordering — and
+    # therefore the same tie-breaking behavior in BM25/FAISS — regardless
+    # of indexing history or OS/filesystem traversal order.
+    for relpath, file_entry in sorted(chunk_manifest.files.items()):
         embedded = embedding_manifest.files.get(relpath)
         if embedded is None:
             continue
@@ -126,14 +134,9 @@ class FusedSearchResult:
     sources: frozenset[str]  # {"dense"}, {"sparse"}, or {"dense", "sparse"}
 
 
-def search(
-    repo: Path, config: RyloxConfig, query: str, top_k: int
-) -> list[FusedSearchResult]:
-    """Return the top_k chunks for `query`, fusing dense (FAISS) and sparse
-    (BM25) retrieval via Reciprocal Rank Fusion rather than either alone.
-    """
-    index = load_chunk_vector_index(repo)
-
+def _fused_top_k(
+    index: ChunkVectorIndex, config: RyloxConfig, query: str, top_k: int
+) -> list[FusedResult]:
     pool_size = min(index.store.size, max(top_k * _CANDIDATE_POOL_MULTIPLIER, _MIN_CANDIDATE_POOL))
 
     embedder = get_embedder(config.embedding.provider, config.embedding.model)
@@ -147,8 +150,64 @@ def search(
             "sparse": [hit.index for hit in sparse_hits],
         }
     )
+    return fused[:top_k]
 
+
+def search(
+    repo: Path, config: RyloxConfig, query: str, top_k: int
+) -> list[FusedSearchResult]:
+    """Return the top_k chunks for `query`, fusing dense (FAISS) and sparse
+    (BM25) retrieval via Reciprocal Rank Fusion rather than either alone.
+    """
+    index = load_chunk_vector_index(repo)
+    fused = _fused_top_k(index, config, query, top_k)
     return [
         FusedSearchResult(chunk=index.resolve(r.index), score=r.score, sources=r.sources)
-        for r in fused[:top_k]
+        for r in fused
     ]
+
+
+@dataclass(frozen=True)
+class ExpandedResult:
+    chunk: CachedChunk
+    score: float
+    reason: str  # e.g. "caller of login" / "callee of login"
+
+
+def search_with_expansion(
+    repo: Path, config: RyloxConfig, query: str, top_k: int
+) -> tuple[list[FusedSearchResult], list[ExpandedResult]]:
+    """Like `search`, but also expands exactly one hop (callers/callees/
+    references, per rylox.graph) from the top_k fused chunks. Expanded
+    chunks are scored lower than directly-matched chunks and labeled with
+    why they were included (spec §4) — they're a distinct list, not
+    merged into the primary results, so callers can tell the two apart.
+    """
+    index = load_chunk_vector_index(repo)
+    fused = _fused_top_k(index, config, query, top_k)
+
+    primary = [
+        FusedSearchResult(chunk=index.resolve(r.index), score=r.score, sources=r.sources)
+        for r in fused
+    ]
+    if not primary:
+        return primary, []
+
+    graph = build_reference_graph(index.chunks)
+    top_indices = [r.index for r in fused]
+    expanded_raw = expand_one_hop(top_indices, graph, index.chunks)
+
+    # Expanded chunks are ranked below every directly-matched chunk, but
+    # keep their relative order from expand_one_hop (which processes the
+    # top_k chunks in fused-rank order) rather than all collapsing to one
+    # identical score.
+    lowest_primary_score = min(r.score for r in fused)
+    expanded = [
+        ExpandedResult(
+            chunk=index.resolve(e.index),
+            score=lowest_primary_score * (0.5 - 0.001 * position),
+            reason=e.reason,
+        )
+        for position, e in enumerate(expanded_raw)
+    ]
+    return primary, expanded
