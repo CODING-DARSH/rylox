@@ -26,6 +26,7 @@ dependencies = [
     "tree-sitter-python>=0.21,<0.22",
     "faiss-cpu>=1.7.4,<2.0",
     "rank-bm25>=0.2.2,<0.3",
+    "tiktoken>=0.7,<1.0",
     "sentence-transformers>=3.2,<4.0",
     "onnxruntime>=1.17,<2.0",
     "numpy<2.1",  # 2.1+ stub files use PEP 695 syntax that breaks mypy stub parsing
@@ -87,6 +88,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "rank_bm25"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tiktoken"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

@@ -142,6 +142,33 @@ reasonable starting guess, not a measured-good value — worth revisiting
 once the golden-set regression suite (planned, not built yet) can
 actually measure whether a wider or narrower pool changes recall.
 
+## assembler.py
+
+**"Supporting symbols" reasons say "caller of X" even for pure import/constant references.**
+Spec §7 expects a fourth reason label — "referenced constant/import of X" —
+distinct from "caller of X". Since Phase 7 unified the call graph and
+import graph into one `ReferenceGraph` (see the `graph.py` entry above),
+that distinction doesn't exist internally: every one-hop expansion that
+isn't a callee gets labeled "caller of X" by `rylox.graph`, even when the
+real relationship is an import or constant reference, not an actual call.
+This will show up verbatim in Phase 9's rendered `# Reasons` section —
+worth fixing there (or back in `graph.py`) if the mislabeling turns out
+to matter for real usage, rather than a surprise found after release.
+
+**`top_k` (default 3) governs how many direct matches count as "entry
+points," not a single one.**
+Spec §5's diagram shows one "Primary entry point." `assemble_context`
+instead treats the top-k fused search results as a small set of entry
+points. Deliberate simplification, not an oversight — but worth knowing
+if downstream output ever assumes exactly one entry point.
+
+**`max_tokens` has no fallback to `config.budget.max_tokens`.**
+It's a required parameter with no default in `assemble_context`'s own
+signature — every caller must pass it explicitly. Fine as long as the
+CLI (Phase 10) always threads `--max-tokens` (or the config default)
+through itself, but `assemble_context` won't silently do the right thing
+if called directly without it.
+
 ## indexer.py
 
 **`.gitignore` support is simplified `fnmatch`, not the real gitignore spec.**
