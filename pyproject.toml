@@ -115,6 +115,15 @@ module = ["numpy", "numpy.*"]
 follow_imports = "skip"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# Same issue as torch/numpy above: pulled in transitively via
+# huggingface_hub, its source uses Python 3.10+ match statement syntax,
+# which breaks analysis under our python_version=3.9 target. We never
+# import filelock directly.
+module = ["filelock", "filelock.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
