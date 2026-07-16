@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import shutil
+import sys
 from pathlib import Path
 from typing import Optional
 
 import typer
 
 from rylox import __version__
+from rylox.assembler import assemble_context
 from rylox.config import load_or_write_defaults
 from rylox.doctor import run_doctor
 from rylox.errors import RyloxError
 from rylox.indexer import run_index
+from rylox.renderer import write_context_file
 from rylox.retrieval import update_embeddings
 
 app = typer.Typer(
@@ -94,13 +97,20 @@ def context(
     """Assemble a token-budgeted, relationship-aware context package for TASK."""
     if output_format != "markdown":
         raise typer.BadParameter("Only --format markdown is supported in v0.1.")
+
+    config = load_or_write_defaults(repo)
+    ctx = assemble_context(repo, config, task, max_tokens=max_tokens)
+    output_path = write_context_file(ctx, repo)
+
+    typer.echo(f"wrote {output_path}")
     typer.echo(
-        "rylox context: not implemented yet — retrieval fusion, relationship "
-        "expansion, and context assembly are not built yet. Run `rylox index` "
-        "to build the index in the meantime.",
-        err=True,
+        f"{len(ctx.included)} chunk(s) included, {len(ctx.related_files)} file(s) touched, "
+        f"{ctx.total_tokens} / {max_tokens} tokens"
     )
-    raise typer.Exit(code=1)
+    if ctx.skipped:
+        typer.echo(
+            f"{len(ctx.skipped)} chunk(s) skipped (did not fit budget)", err=True
+        )
 
 
 @app.command()
@@ -138,12 +148,20 @@ def doctor(
 
 
 def run() -> None:
-    """Entry point wrapper: turn RyloxError into a clean message + exit code."""
+    """Entry point wrapper: turn RyloxError into a clean message + exit code.
+
+    Uses sys.exit(), not `raise typer.Exit(...)`: by the time RyloxError
+    propagates out of app() and is caught here, we're outside Click's own
+    active command-invocation context, so typer.Exit/click.exceptions.Exit
+    no longer gets silently handled by Click — it becomes an ordinary
+    uncaught exception with a full printed traceback. sys.exit() raises
+    SystemExit, which the interpreter always handles silently regardless.
+    """
     try:
         app()
     except RyloxError as err:
         typer.echo(f"error: {err.message}", err=True)
-        raise typer.Exit(code=err.exit_code) from err
+        sys.exit(err.exit_code)
 
 
 if __name__ == "__main__":

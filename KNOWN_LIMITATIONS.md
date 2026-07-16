@@ -177,11 +177,6 @@ beyond what `fnmatch` gives for free. Handles the common cases (ignoring
 `node_modules`, `build/`, `*.log`) correctly. A real implementation would
 use a proper gitignore-matching library rather than hand-rolled patterns.
 
-**File-size ceiling is a hardcoded constant, not configurable.**
-Spec §12 calls for "a *configurable* per-file size ceiling" — currently
-`MAX_FILE_SIZE_BYTES = 5MB` is a constant in `indexer.py`, not exposed via
-`rylox.toml`. Should move into `BudgetConfig` or a new config section.
-
 **Directory walk doesn't prune ignored directories early.**
 `repo.rglob("*.py")` walks the entire tree first, then filters by ignore
 pattern per-file. On a repo with a huge `node_modules` or `vendor` tree,

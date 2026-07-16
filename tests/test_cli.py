@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 import typer.main
 from typer.testing import CliRunner
 
@@ -93,11 +94,40 @@ def test_context_rejects_non_markdown_format(tmp_path: object) -> None:
     assert "markdown" in result.output.lower()
 
 
-def test_context_stub_runs_and_reports_not_implemented(tmp_path: object) -> None:
+def test_context_without_prior_index_raises_index_not_found(tmp_path: object) -> None:
+    from rylox.errors import IndexNotFoundError
+
     result = runner.invoke(app, ["context", "how does auth work", "--repo", str(tmp_path)])
-    assert result.exit_code == 1
-    assert "not implemented" in result.output
-    assert "rylox index" in result.output
+    # CliRunner invokes the raw Typer app, bypassing cli.py's run() wrapper
+    # (which is what turns RyloxError into a clean printed message + clean
+    # exit) — so here we assert on the exception type Click/Typer itself
+    # captures. run()'s clean-message/exit-code behavior is covered
+    # separately, since that wrapper only matters for the real installed
+    # `rylox` command, not for direct app() invocation.
+    assert isinstance(result.exception, IndexNotFoundError)
+
+
+def test_run_wrapper_exits_cleanly_on_rylox_error_no_traceback(tmp_path, capsys) -> None:
+    """Regression test for a real bug: run() used to `raise typer.Exit(...)`
+    after catching RyloxError, but by that point app() has already fully
+    unwound and Click's own exception-handling context is no longer active
+    — so typer.Exit became an ordinary uncaught exception with a full
+    printed traceback, instead of a clean process exit. run() must use
+    sys.exit() instead, which the interpreter always handles silently.
+    Confirmed via the real installed `rylox` binary before this fix landed.
+    """
+    import sys
+
+    from rylox.cli import run
+
+    sys.argv = ["rylox", "context", "how does auth work", "--repo", str(tmp_path)]
+    with pytest.raises(SystemExit) as exc_info:
+        run()
+
+    assert exc_info.value.code == 3  # IndexNotFoundError.exit_code
+    captured = capsys.readouterr()
+    assert "error:" in captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_clean_on_missing_cache_reports_nothing_to_clean(tmp_path: object) -> None:

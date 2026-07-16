@@ -48,3 +48,28 @@ class BudgetTooSmallError(RyloxError):
     """Primary entry point alone doesn't fit --max-tokens (§6 defined failure)."""
 
     exit_code: int = 5
+
+
+class NoEmbeddedChunksError(RyloxError):
+    """No embedded chunks exist to search — `index` and/or the embedding
+    update step haven't run yet for this repo.
+    """
+
+    exit_code: int = 6
+
+
+class TokenizerUnavailableError(RyloxError):
+    """The token-counting tokenizer couldn't be loaded — most likely its
+    data needs a one-time network download and none is available right now.
+    """
+
+    exit_code: int = 7
+
+
+class EmbeddingModelUnavailableError(RyloxError):
+    """The embedding model couldn't be loaded — most likely it needs a
+    one-time network download (or a local cache) and neither is available
+    right now.
+    """
+
+    exit_code: int = 8

@@ -8,8 +8,6 @@ from pathlib import Path
 from rylox import cache, chunking
 from rylox.config import RyloxConfig
 
-MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
-
 
 @dataclass
 class IndexReport:
@@ -57,7 +55,13 @@ def iter_python_files(repo: Path, config: RyloxConfig, report: IndexReport) -> d
         patterns += _load_gitignore_patterns(repo)
 
     found: dict[str, Path] = {}
-    for path in repo.rglob("*.py"):
+    # Sorted explicitly: repo.rglob()'s traversal order is OS/filesystem
+    # dependent (confirmed differing between Linux and Windows in practice,
+    # not just in theory) and is never guaranteed by Python's docs. Without
+    # this sort, chunk index assignment — and therefore BM25/FAISS
+    # tie-breaking behavior — silently varies by platform, breaking the
+    # "deterministic ordering given the same index and query" requirement.
+    for path in sorted(repo.rglob("*.py")):
         rel = path.relative_to(repo).as_posix()
 
         if _is_ignored(rel, patterns):
@@ -73,7 +77,8 @@ def iter_python_files(repo: Path, config: RyloxConfig, report: IndexReport) -> d
             size = path.stat().st_size
         except OSError:
             continue
-        if size > MAX_FILE_SIZE_BYTES:
+        max_bytes = config.ignore.max_file_size_mb * 1024 * 1024
+        if size > max_bytes:
             report.skipped_too_large.append(rel)
             continue
 

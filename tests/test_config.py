@@ -1,3 +1,5 @@
+"""Phase 2 tests: config schema, loading, validation, defaults; embedding provider registry."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -113,3 +115,40 @@ def test_partial_config_falls_back_to_defaults_for_missing_fields(tmp_path: Path
 
 def test_supported_providers_contains_only_huggingface() -> None:
     assert SUPPORTED_PROVIDERS == ("huggingface",)
+
+
+def test_default_max_file_size_mb_is_five(tmp_path: Path) -> None:
+    cfg = config_mod.load_or_write_defaults(tmp_path)
+    assert cfg.ignore.max_file_size_mb == config_mod.DEFAULT_MAX_FILE_SIZE_MB
+
+
+def test_max_file_size_mb_is_configurable(tmp_path: Path) -> None:
+    (tmp_path / "rylox.toml").write_text(
+        "[ignore]\nmax_file_size_mb = 10\n", encoding="utf-8"
+    )
+    cfg = config_mod.load_config(tmp_path)
+    assert cfg.ignore.max_file_size_mb == 10
+
+
+def test_negative_max_file_size_mb_rejected(tmp_path: Path) -> None:
+    (tmp_path / "rylox.toml").write_text(
+        "[ignore]\nmax_file_size_mb = -1\n", encoding="utf-8"
+    )
+    with pytest.raises(ConfigError):
+        config_mod.load_config(tmp_path)
+
+
+def test_zero_max_file_size_mb_rejected(tmp_path: Path) -> None:
+    (tmp_path / "rylox.toml").write_text(
+        "[ignore]\nmax_file_size_mb = 0\n", encoding="utf-8"
+    )
+    with pytest.raises(ConfigError):
+        config_mod.load_config(tmp_path)
+
+
+def test_wrong_type_for_max_file_size_mb_rejected(tmp_path: Path) -> None:
+    (tmp_path / "rylox.toml").write_text(
+        '[ignore]\nmax_file_size_mb = "big"\n', encoding="utf-8"
+    )
+    with pytest.raises(ConfigError, match="must be of type int"):
+        config_mod.load_config(tmp_path)

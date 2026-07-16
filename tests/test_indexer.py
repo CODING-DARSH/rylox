@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from rylox import cache
-from rylox.config import RyloxConfig
-from rylox.indexer import MAX_FILE_SIZE_BYTES, hash_file, run_index
+from rylox.config import DEFAULT_MAX_FILE_SIZE_MB, RyloxConfig
+from rylox.indexer import hash_file, run_index
 
 
 def _write(repo: Path, relpath: str, content: str) -> None:
@@ -106,10 +106,30 @@ def test_gitignore_ignored_when_respect_gitignore_is_false(tmp_path: Path) -> No
 
 def test_oversized_file_is_skipped_with_warning(tmp_path: Path) -> None:
     big = tmp_path / "big.py"
-    big.write_bytes(b"x = 1\n" * (MAX_FILE_SIZE_BYTES // 6 + 1000))
+    big.write_bytes(b"x = 1\n" * (DEFAULT_MAX_FILE_SIZE_MB * 1024 * 1024 // 6 + 1000))
     report = run_index(tmp_path, RyloxConfig())
     assert report.total_files == 0
     assert "big.py" in report.skipped_too_large
+
+
+def test_max_file_size_is_configurable(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    medium = tmp_path / "medium.py"
+    medium.write_bytes(b"x = 1\n" * 200_000)  # ~1.2MB
+
+    # Comfortably fits the default 5MB ceiling.
+    default_report = run_index(tmp_path, RyloxConfig())
+    assert default_report.total_files == 1
+    assert default_report.skipped_too_large == []
+
+    # Lowering the configured ceiling below the file's real size must
+    # cause it to be skipped — proving the limit is genuinely read from
+    # config, not still hardcoded.
+    tight_config = replace(RyloxConfig(), ignore=replace(RyloxConfig().ignore, max_file_size_mb=1))
+    tight_report = run_index(tmp_path, tight_config)
+    assert tight_report.total_files == 0
+    assert "medium.py" in tight_report.skipped_too_large
 
 
 def test_symlink_escaping_repo_root_is_skipped(tmp_path: Path) -> None:

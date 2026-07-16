@@ -40,6 +40,7 @@ DEFAULT_CALL_DEPTH = 1
 DEFAULT_MAX_TOKENS = 16000
 DEFAULT_OUTPUT_FORMAT = "markdown"
 DEFAULT_IGNORE_PATTERNS = [".git", "*.min.js", "node_modules", "__pycache__"]
+DEFAULT_MAX_FILE_SIZE_MB = 5
 
 SUPPORTED_OUTPUT_FORMATS = ("markdown",)
 
@@ -65,6 +66,7 @@ format = "{DEFAULT_OUTPUT_FORMAT}"   # only supported value in v0.1
 [ignore]
 patterns = {_toml_string_array(DEFAULT_IGNORE_PATTERNS)}
 respect_gitignore = true
+max_file_size_mb = {DEFAULT_MAX_FILE_SIZE_MB}  # files larger than this are skipped, not indexed
 """
 
 
@@ -93,6 +95,7 @@ class OutputConfig:
 class IgnoreConfig:
     patterns: list[str] = field(default_factory=lambda: list(DEFAULT_IGNORE_PATTERNS))
     respect_gitignore: bool = True
+    max_file_size_mb: int = DEFAULT_MAX_FILE_SIZE_MB
 
 
 @dataclass(frozen=True)
@@ -209,7 +212,17 @@ def _parse(raw: dict[str, Any], *, source: Path) -> RyloxConfig:
         respect_gitignore=_get(
             ignore_raw, "respect_gitignore", True, bool, source, "ignore.respect_gitignore"
         ),
+        max_file_size_mb=_get(
+            ignore_raw,
+            "max_file_size_mb",
+            DEFAULT_MAX_FILE_SIZE_MB,
+            int,
+            source,
+            "ignore.max_file_size_mb",
+        ),
     )
+    if ignore.max_file_size_mb <= 0:
+        raise ConfigError(f"{source}: ignore.max_file_size_mb must be a positive integer.")
 
     return RyloxConfig(
         embedding=embedding, retrieval=retrieval, budget=budget, output=output, ignore=ignore

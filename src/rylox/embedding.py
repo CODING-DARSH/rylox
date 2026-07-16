@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Callable, Protocol
 
+from rylox.errors import EmbeddingModelUnavailableError
+
 
 class Embedder(Protocol):
     """Anything that turns text into vectors."""
@@ -57,7 +59,16 @@ class HuggingFaceONNXEmbedder:
             # bug in this code. Using the default torch backend until the
             # optimum/torch/transformers version triangle is pinned to a
             # combination that's actually verified to work end-to-end.
-            model = SentenceTransformer(self.model)
+            try:
+                model = SentenceTransformer(self.model)
+            except Exception as exc:  # noqa: BLE001 - any load failure here
+                # needs to surface as a clean, actionable message, not a raw
+                # HTTPError/OSError traceback bubbling up from huggingface_hub.
+                raise EmbeddingModelUnavailableError(
+                    f"could not load embedding model '{self.model}' (needs a "
+                    f"one-time network download on first use, or a local "
+                    f"cache): {exc}"
+                ) from exc
             _MODEL_CACHE[self.model] = model
 
         vectors = model.encode(texts, convert_to_numpy=True)  # type: ignore[attr-defined]
