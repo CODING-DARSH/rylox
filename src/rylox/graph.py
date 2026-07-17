@@ -14,6 +14,12 @@ def _identifiers(text: str) -> set[str]:
     return {tok for tok in _IDENTIFIER_RE.findall(text) if tok not in _KEYWORDS}
 
 
+# A name that resolves to more than this many chunks repo-wide is treated
+# as too generic/ambiguous to be a meaningful reference target at all, and
+# is excluded from graph-building entirely — see build_reference_graph.
+_MAX_NAME_AMBIGUITY = 3
+
+
 @dataclass
 class ReferenceGraph:
     """Forward and reverse reference edges between chunks, by index.
@@ -34,16 +40,37 @@ class ReferenceGraph:
 
 
 def build_reference_graph(chunks: list[CachedChunk]) -> ReferenceGraph:
+    """Build the reference graph.
+
+    Names that map to more than _MAX_NAME_AMBIGUITY chunks are excluded as
+    valid reference targets entirely, not just capped. This matters
+    concretely for real Python codebases: a class defining its own
+    `__init__` (or `name`, `fail`, `convert`, or any other extremely
+    common method name) would otherwise appear to "reference" every other
+    same-named method anywhere in the repo, purely because they share a
+    name — confirmed directly against a real codebase, where a single
+    class's own constructor definition produced dozens of false "callee"
+    edges to unrelated classes' unrelated constructors, consuming the
+    entire token budget on noise instead of relevant code. A name that
+    maps to only a handful of chunks is a specific, meaningful signal; a
+    name that maps to dozens carries essentially none.
+    """
     name_to_indices: dict[str, list[int]] = {}
     for i, chunk in enumerate(chunks):
         name_to_indices.setdefault(chunk.name, []).append(i)
+
+    unambiguous_names = {
+        name: indices
+        for name, indices in name_to_indices.items()
+        if len(indices) <= _MAX_NAME_AMBIGUITY
+    }
 
     graph = ReferenceGraph()
     for i, chunk in enumerate(chunks):
         referenced_names = _identifiers(chunk.content)
         targets: set[int] = set()
         for name in referenced_names:
-            for j in name_to_indices.get(name, ()):
+            for j in unambiguous_names.get(name, ()):
                 if j != i:
                     targets.add(j)
         if targets:

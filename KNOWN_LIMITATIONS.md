@@ -142,6 +142,33 @@ reasonable starting guess, not a measured-good value — worth revisiting
 once the golden-set regression suite (planned, not built yet) can
 actually measure whether a wider or narrower pool changes recall.
 
+## graph.py
+
+**A common method/function name shared across many unrelated classes used
+to produce a large number of false reference edges — found and fixed
+against a real repository, not caught by synthetic tests.**
+Running Rylox against the actual Click open-source repository surfaced a
+severe bug: a class's own `__init__` declaration (an extremely common
+method name — Click has dozens of classes, each with a constructor) was
+treated as "referencing" every other class's `__init__` anywhere in the
+repo, purely because they share that name. One query's `# Execution Flow`
+section filled with over a dozen unrelated classes' constructors
+(`ProgressBar.__init__`, `Context.__init__`, `WindowsChunkedWriter.__init__`,
+etc.), consuming the entire 16000-token budget on noise instead of the
+actually-relevant type-conversion code the query asked about. Fixed by
+excluding any name that resolves to more than `_MAX_NAME_AMBIGUITY` (3)
+chunks repo-wide from ever being treated as a valid reference target — a
+name that maps to a handful of chunks is a specific, meaningful signal; a
+name that maps to dozens carries essentially none. This is a real,
+demonstrated failure mode of the merged call+import reference-graph
+design (see the "Supporting symbols" entry under `assembler.py` below for
+the related labeling simplification) — confirmed fixed on the exact
+reproduction case, but the ambiguity threshold (3) is a reasonable
+starting guess, not a tuned value. Worth watching for the same failure
+mode at a smaller scale (a name shared by exactly 2-3 chunks can still
+occasionally produce a spurious edge) once the golden-set regression
+suite exists to measure it properly.
+
 ## assembler.py
 
 **"Supporting symbols" reasons say "caller of X" even for pure import/constant references.**
